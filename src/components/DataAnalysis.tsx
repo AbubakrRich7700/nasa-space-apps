@@ -35,27 +35,69 @@ export function DataAnalysis({ onBack }: DataAnalysisProps) {
     setData([inputData]);
   };
 
-  const runAnalysis = async () => {
-    if (data.length === 0) return;
+const runAnalysis = async () => {
+  if (data.length === 0) return;
 
-    setIsAnalyzing(true);
-    
-    // Simulate ML analysis
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    const analysisResults = data.map((planetData, index) => {
-      // Simple classification logic based on parameters
-      const score = calculateClassificationScore(planetData);
-      const classification = getClassification(score);
-      const confidence = Math.min(Math.max(score + Math.random() * 0.2 - 0.1, 0.5), 0.99);
+  setIsAnalyzing(true);
+  
+  try {
+    // РЕАЛЬНЫЙ ML АНАЛИЗ через API
+    const analysisResults = await Promise.all(
+      data.map(async (planetData, index) => {
+        try {
+          const response = await fetch('https://exoplanet-ml-api.onrender.com/api/predict', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              orbital_period: planetData.orbitalPeriod,
+              transit_duration: planetData.transitDuration,
+              planet_radius: planetData.planetRadius,
+              stellar_radius: planetData.stellarRadius,
+              equilibrium_temp: planetData.equilibriumTemp,
+              insolation_flux: planetData.insolationFlux
+            })
+          });
 
-      return {
-        id: index + 1,
-        data: planetData,
-        classification,
-        confidence: Math.round(confidence * 100),
-        score
-      };
+          if (!response.ok) {
+            throw new Error('ML API error');
+          }
+
+          const mlResult = await response.json();
+          
+          // Конвертируем результат ML в наш формат
+          const isExoplanet = mlResult.prediction === 'EXOPLANET';
+          const confidence = Math.round(mlResult.confidence * 100);
+          
+          return {
+            id: index + 1,
+            data: planetData,
+            classification: isExoplanet ? 'Confirmed Exoplanet' : 'False Positive',
+            confidence: confidence,
+            mlResult: mlResult // Сохраняем полный результат ML
+          };
+        } catch (error) {
+          console.error('ML analysis failed for object:', index, error);
+          return {
+            id: index + 1,
+            data: planetData,
+            classification: 'Analysis Error',
+            confidence: 0,
+            error: 'ML analysis failed'
+          };
+        }
+      })
+    );
+
+    setResults(analysisResults);
+    setShowResults(true);
+  } catch (error) {
+    console.error('Analysis failed:', error);
+  } finally {
+    setIsAnalyzing(false);
+  }
+};
     });
 
     setResults(analysisResults);
