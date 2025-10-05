@@ -3,12 +3,15 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Edit, Send } from 'lucide-react';
+import { Edit, Send, Brain } from 'lucide-react';
 import { PlanetData } from './DataAnalysis';
 
 interface ManualInputProps {
   onSubmit: (data: PlanetData) => void;
 }
+
+// ML API конфигурация
+const ML_API_URL = "https://exoplanet-ml-api.onrender.com";
 
 export function ManualInput({ onSubmit }: ManualInputProps) {
   const [formData, setFormData] = useState<PlanetData>({
@@ -21,6 +24,8 @@ export function ManualInput({ onSubmit }: ManualInputProps) {
   });
 
   const [errors, setErrors] = useState<Partial<PlanetData>>({});
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [mlResult, setMlResult] = useState<any>(null);
 
   const handleInputChange = (field: keyof PlanetData, value: string) => {
     const numValue = parseFloat(value) || 0;
@@ -30,6 +35,8 @@ export function ManualInput({ onSubmit }: ManualInputProps) {
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: undefined }));
     }
+    // Clear ML result when data changes
+    setMlResult(null);
   };
 
   const validateForm = (): boolean => {
@@ -58,22 +65,114 @@ export function ManualInput({ onSubmit }: ManualInputProps) {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // НОВАЯ ФУНКЦИЯ: Анализ с помощью ML
+  const analyzeWithML = async (data: PlanetData) => {
+    setIsAnalyzing(true);
+    setMlResult(null);
+
+    try {
+      const response = await fetch(`${ML_API_URL}/api/predict`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          orbital_period: data.orbitalPeriod,
+          transit_duration: data.transitDuration,
+          planet_radius: data.planetRadius,
+          stellar_radius: data.stellarRadius,
+          equilibrium_temp: data.equilibriumTemp,
+          insolation_flux: data.insolationFlux
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('ML API error');
+      }
+
+      const result = await response.json();
+      setMlResult(result);
+      
+      // Показываем результат в консоли для отладки
+      console.log('ML Analysis Result:', result);
+      
+    } catch (error) {
+      console.error('ML Analysis failed:', error);
+      setMlResult({
+        prediction: 'ANALYSIS_ERROR',
+        confidence: 0,
+        error: 'Failed to analyze with AI'
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (validateForm()) {
+      // Сначала анализируем с ML
+      await analyzeWithML(formData);
+      // Затем передаем данные в родительский компонент
       onSubmit(formData);
     }
   };
 
   const loadExampleData = () => {
-    setFormData({
+    const exampleData = {
       orbitalPeriod: 365.25,
       transitDuration: 6.2,
       planetRadius: 1.0,
       stellarRadius: 1.0,
       equilibriumTemp: 288,
       insolationFlux: 1.0
-    });
+    };
+    setFormData(exampleData);
+    setMlResult(null);
+  };
+
+  // Функция для отображения результата ML
+  const renderMLResult = () => {
+    if (!mlResult) return null;
+
+    if (mlResult.error) {
+      return (
+        <div className="mt-4 p-4 bg-red-900/20 border border-red-700 rounded-lg">
+          <h4 className="text-red-400 font-semibold mb-2">❌ AI Analysis Error</h4>
+          <p className="text-red-300 text-sm">{mlResult.error}</p>
+        </div>
+      );
+    }
+
+    const confidencePercent = (mlResult.confidence * 100).toFixed(1);
+    const isExoplanet = mlResult.prediction === 'EXOPLANET';
+
+    return (
+      <div className={`mt-4 p-4 rounded-lg border ${
+        isExoplanet 
+          ? 'bg-green-900/20 border-green-700' 
+          : 'bg-yellow-900/20 border-yellow-700'
+      }`}>
+        <h4 className="font-semibold mb-2 flex items-center">
+          <Brain className="w-4 h-4 mr-2" />
+          🧠 AI Analysis Result
+        </h4>
+        <div className="space-y-2 text-sm">
+          <p className={isExoplanet ? 'text-green-400' : 'text-yellow-400'}>
+            <strong>Prediction:</strong> {mlResult.prediction}
+          </p>
+          <p className="text-gray-300">
+            <strong>Confidence:</strong> {confidencePercent}%
+          </p>
+          <p className="text-gray-400 text-xs">
+            {isExoplanet 
+              ? 'This object is likely an exoplanet!' 
+              : 'This object may not be an exoplanet'
+            }
+          </p>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -87,6 +186,7 @@ export function ManualInput({ onSubmit }: ManualInputProps) {
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid md:grid-cols-2 gap-6">
+            {/* Все поля остаются без изменений */}
             <div className="space-y-2">
               <Label htmlFor="orbitalPeriod" className="text-white">
                 Orbital Period (days)
@@ -196,6 +296,9 @@ export function ManualInput({ onSubmit }: ManualInputProps) {
             </div>
           </div>
 
+          {/* Отображение результата ML анализа */}
+          {renderMLResult()}
+
           <div className="flex space-x-4">
             <Button
               type="button"
@@ -207,10 +310,20 @@ export function ManualInput({ onSubmit }: ManualInputProps) {
             </Button>
             <Button
               type="submit"
-              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 flex-1"
+              disabled={isAnalyzing}
+              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 flex-1 disabled:opacity-50"
             >
-              <Send className="w-4 h-4 mr-2" />
-              Submit for Analysis
+              {isAnalyzing ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Analyzing with AI...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 mr-2" />
+                  Submit for Analysis
+                </>
+              )}
             </Button>
           </div>
         </form>
