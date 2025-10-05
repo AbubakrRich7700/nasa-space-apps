@@ -35,107 +35,72 @@ export function DataAnalysis({ onBack }: DataAnalysisProps) {
     setData([inputData]);
   };
 
-const runAnalysis = async () => {
-  if (data.length === 0) return;
+  const runAnalysis = async () => {
+    if (data.length === 0) return;
 
-  setIsAnalyzing(true);
-  
-  try {
-    // РЕАЛЬНЫЙ ML АНАЛИЗ через API
-    const analysisResults = await Promise.all(
-      data.map(async (planetData, index) => {
-        try {
-          const response = await fetch('https://exoplanet-ml-api.onrender.com/api/predict', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              orbital_period: planetData.orbitalPeriod,
-              transit_duration: planetData.transitDuration,
-              planet_radius: planetData.planetRadius,
-              stellar_radius: planetData.stellarRadius,
-              equilibrium_temp: planetData.equilibriumTemp,
-              insolation_flux: planetData.insolationFlux
-            })
-          });
+    setIsAnalyzing(true);
+    
+    try {
+      // РЕАЛЬНЫЙ ML АНАЛИЗ через API
+      const analysisResults = await Promise.all(
+        data.map(async (planetData, index) => {
+          try {
+            console.log('Sending to ML API:', planetData);
+            
+            const response = await fetch('https://exoplanet-ml-api.onrender.com/api/predict', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                orbital_period: planetData.orbitalPeriod,
+                transit_duration: planetData.transitDuration,
+                planet_radius: planetData.planetRadius,
+                stellar_radius: planetData.stellarRadius,
+                equilibrium_temp: planetData.equilibriumTemp,
+                insolation_flux: planetData.insolationFlux
+              })
+            });
 
-          if (!response.ok) {
-            throw new Error('ML API error');
+            if (!response.ok) {
+              throw new Error('ML API error: ' + response.status);
+            }
+
+            const mlResult = await response.json();
+            console.log('ML API response:', mlResult);
+            
+            // Конвертируем результат ML в наш формат
+            const isExoplanet = mlResult.prediction === 'EXOPLANET';
+            const confidence = Math.round(mlResult.confidence * 100);
+            
+            return {
+              id: index + 1,
+              data: planetData,
+              classification: isExoplanet ? 'Confirmed Exoplanet' : 'False Positive',
+              confidence: confidence,
+              mlResult: mlResult // Сохраняем полный результат ML
+            };
+          } catch (error) {
+            console.error('ML analysis failed for object:', index, error);
+            return {
+              id: index + 1,
+              data: planetData,
+              classification: 'Analysis Error',
+              confidence: 0,
+              error: 'ML analysis failed: ' + error.message
+            };
           }
+        })
+      );
 
-          const mlResult = await response.json();
-          
-          // Конвертируем результат ML в наш формат
-          const isExoplanet = mlResult.prediction === 'EXOPLANET';
-          const confidence = Math.round(mlResult.confidence * 100);
-          
-          return {
-            id: index + 1,
-            data: planetData,
-            classification: isExoplanet ? 'Confirmed Exoplanet' : 'False Positive',
-            confidence: confidence,
-            mlResult: mlResult // Сохраняем полный результат ML
-          };
-        } catch (error) {
-          console.error('ML analysis failed for object:', index, error);
-          return {
-            id: index + 1,
-            data: planetData,
-            classification: 'Analysis Error',
-            confidence: 0,
-            error: 'ML analysis failed'
-          };
-        }
-      })
-    );
-
-    setResults(analysisResults);
-    setShowResults(true);
-  } catch (error) {
-    console.error('Analysis failed:', error);
-  } finally {
-    setIsAnalyzing(false);
-  }
-};
-    });
-
-    setResults(analysisResults);
-    setIsAnalyzing(false);
-    setShowResults(true);
-  };
-
-  const calculateClassificationScore = (data: PlanetData): number => {
-    // Simplified scoring algorithm
-    let score = 0.5;
-    
-    // Orbital period influence
-    if (data.orbitalPeriod > 0.5 && data.orbitalPeriod < 400) {
-      score += 0.2;
+      console.log('All analysis results:', analysisResults);
+      setResults(analysisResults);
+      setShowResults(true);
+    } catch (error) {
+      console.error('Analysis failed:', error);
+    } finally {
+      setIsAnalyzing(false);
     }
-    
-    // Transit duration influence
-    if (data.transitDuration > 0.1 && data.transitDuration < 15) {
-      score += 0.15;
-    }
-    
-    // Planet radius influence
-    if (data.planetRadius > 0.5 && data.planetRadius < 10) {
-      score += 0.15;
-    }
-    
-    // Temperature influence
-    if (data.equilibriumTemp > 200 && data.equilibriumTemp < 2000) {
-      score += 0.1;
-    }
-
-    return Math.min(score, 0.95);
-  };
-
-  const getClassification = (score: number): string => {
-    if (score > 0.8) return 'Confirmed Exoplanet';
-    if (score > 0.6) return 'Planet Candidate';
-    return 'False Positive';
   };
 
   if (showResults) {
